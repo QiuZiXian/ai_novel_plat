@@ -142,6 +142,19 @@ export const ipc = {
       && !!window.aiNovelAPI
   },
 
+  /** 是否是浏览器（Web）运行时 */
+  get isWeb(): boolean {
+    return typeof window !== 'undefined'
+      && window.aiNovelAPI?.runtime === 'web'
+  },
+
+  /** 是否是桌面（Electron）运行时 */
+  get isDesktop(): boolean {
+    return typeof window !== 'undefined'
+      && !!window.aiNovelAPI
+      && window.aiNovelAPI.runtime !== 'web'
+  },
+
   /** 设置窗口缩放级别 */
   setZoomLevel: (level: number) => {
     getAPI().setZoomLevel(level)

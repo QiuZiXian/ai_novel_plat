@@ -16,8 +16,11 @@ export default function NewWorkDialog() {
   const folderId = useId()
   const reasonId = useId()
   const reason = form.creating ? null
-    : !form.path ? text('先选保存位置，作品会建在那个文件夹里。', 'Choose a location first; the book is created in that folder.')
+    : !form.isWeb && !form.path ? text('先选保存位置，作品会建在那个文件夹里。', 'Choose a location first; the book is created in that folder.')
       : !form.name.trim() ? text('先起个作品名。', 'Give the book a title first.') : null
+  const locationHint = form.isWeb
+    ? text('作品保存在服务器作品库，无需选择文件夹。', 'Books are saved to the server library; no folder needs to be chosen.')
+    : null
 
   return (
     <InkDialog
@@ -55,15 +58,18 @@ export default function NewWorkDialog() {
           <input
             id={folderId}
             className="pi-input"
-            value={form.path?.displayName ?? ''}
+            value={form.isWeb ? text('作品库', 'Library') : (form.path?.displayName ?? '')}
             readOnly
             placeholder={text('选择一个文件夹，作品会建在它里面', 'Choose a folder; the book is created inside it')}
           />
-          <Button variant="secondary" onClick={() => void form.selectFolder()}>
-            <FolderOpen size={14} aria-hidden="true" />
-            {text('选择', 'Choose')}
-          </Button>
+          {!form.isWeb && (
+            <Button variant="secondary" onClick={() => void form.selectFolder()}>
+              <FolderOpen size={14} aria-hidden="true" />
+              {text('选择', 'Choose')}
+            </Button>
+          )}
         </div>
+        {locationHint && <p className="stage-dialog-hint">{locationHint}</p>}
       </div>
       {reason && <p id={reasonId} className="stage-dialog-hint">{reason}</p>}
     </InkDialog>

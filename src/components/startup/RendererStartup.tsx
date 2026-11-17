@@ -49,7 +49,7 @@ export default function RendererStartup({
   // 这一层在外壳的纸墨作用域之外，自己挂 .paper-ink 才取得到令牌；外观偏好还没读出（或读坏了）时跟随系统深浅色。
   const theme = useAppearanceStore(state => state.profile?.colorTheme) ?? (dependencies.systemTheme ?? systemColorTheme)()
   useEffect(() => {
-    if (Workspace || !ipc.isElectron) return
+    if (Workspace || !ipc.isDesktop) return
     // No author editor exists before App mounts. After that App owns its dirty-work guard.
     return ipc.on('window:close-requested', ({ requestId }) => {
       void ipc.invoke('window:resolve-close', requestId, 'proceed').catch(() => undefined)
@@ -93,7 +93,9 @@ export default function RendererStartup({
           if (!useAppearanceStore.getState().resetAppearance()) return
           setLoadFailed(false); setAttempt(value => value + 1)
         }}>{text('重置外观偏好为默认（不影响其它配置）', 'Reset appearance preferences to defaults (other settings are kept)')}</Button>
-        {mainReady && <Button variant="secondary" onClick={() => { void ipc.invoke('window:close').catch(() => undefined) }}>{text('关闭应用', 'Close app')}</Button>}
+        {mainReady && (ipc.isDesktop
+          ? <Button variant="secondary" onClick={() => { void ipc.invoke('window:close').catch(() => undefined) }}>{text('关闭应用', 'Close app')}</Button>
+          : <Button variant="secondary" onClick={() => window.location.reload()}>{text('重新加载页面', 'Reload page')}</Button>)}
       </>}
     </main>
   )

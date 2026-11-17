@@ -266,13 +266,21 @@ function assertRegularSource(sourcePath: string): fs.BigIntStats {
   return info
 }
 
+/**
+ * Windows 上部分文件系统（本机 Node 22 + 非系统盘）的 lstat.dev 恒为 0n，
+ * 而 fstat.dev 是真实卷号。dev 缺失时退化为只比较 ino。
+ */
+function sameDevice(left: fs.BigIntStats, right: fs.BigIntStats): boolean {
+  return left.dev === right.dev || left.dev === 0n || right.dev === 0n
+}
+
 function sameFile(left: fs.BigIntStats, right: fs.BigIntStats): boolean {
-  return left.dev === right.dev && left.ino === right.ino && left.size === right.size
+  return sameDevice(left, right) && left.ino === right.ino && left.size === right.size
     && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs
 }
 
 function sameObject(left: fs.BigIntStats, right: fs.BigIntStats): boolean {
-  return left.dev === right.dev && left.ino === right.ino
+  return sameDevice(left, right) && left.ino === right.ino
 }
 
 function contained(root: string, candidate: string): boolean {

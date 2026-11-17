@@ -3,6 +3,7 @@ import { Archive, Cloud, Download, Upload } from 'lucide-react'
 
 import { displayedErrorMessage } from '../../i18n/app-errors'
 import { ipc } from '../../services/ipc-client'
+import { downloadWebGrant } from '../../services/web-download'
 import type {
   CloudBackupAccountView,
   CloudBackupBindingView,
@@ -146,6 +147,8 @@ function ProjectBackupPanelSession({
     if (!target) return
     const result = await ipc.invoke('project:archive-export', { targetArchiveGrantId: target.grantId, projectSession })
     if (!result.success) throw new Error(result.errorCode || result.error)
+    // Web 端归档在服务端，导出成功后交给浏览器下载。
+    try { await downloadWebGrant(target.grantId) } catch { /* 下载失败不回滚导出结果 */ }
     setNotice({ kind: 'success', text: text(`本地存档已导出：${result.receipt.targetSha256}`, `Local archive exported: ${result.receipt.targetSha256}`) })
   })
 

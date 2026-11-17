@@ -4,7 +4,12 @@ node_modules
 # 构建输出
 dist
 dist-electron
+dist-web
+dist-server
 release
+
+# Web 运行时数据（PAGEKIN_DATA_ROOT 默认值）
+.pagekin-web
 
 # 日志
 logs

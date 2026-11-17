@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { probeProjectSqlite } from './sqlite-project-migration'
 import os from 'node:os'
 import path from 'node:path'
+import { currentUserId } from './user-scope'
 import type { ProjectSessionContext } from '../../src/shared/ipc-channels'
 import { CANONICAL_PROJECT_DIRECTORY, createCanonicalProjectManifest, parseCanonicalProjectManifest } from '../../src/shared/project-format'
 import {
@@ -374,5 +375,53 @@ export class ProjectAccessService {
   }
 }
 
-/** 主进程唯一租约登记处；后续业务 IPC 通过 assertCurrentSession 逐步迁移。 */
-export const projectAccess = new ProjectAccessService()
+/**
+ * 租约登记处按用户分开：桌面与单机调试共用 `local`，Web 每个登录用户各持一份，
+ * 打开作品时不再覆盖其他用户的活动会话。
+ */
+const accessByUser = new Map<string, ProjectAccessService>()
+
+export function projectAccessFor(userId: string = currentUserId()): ProjectAccessService {
+  let service = accessByUser.get(userId)
+  if (!service) {
+    service = new ProjectAccessService()
+    accessByUser.set(userId, service)
+  }
+  return service
+}
+
+/** 旧调用点无需改签名：按当前请求的用户作用域转发。 */
+class UserScopedProjectAccess {
+  createProject(...args: Parameters<ProjectAccessService['createProject']>) {
+    return projectAccessFor().createProject(...args)
+  }
+  probeExistingProject(...args: Parameters<ProjectAccessService['probeExistingProject']>) {
+    return projectAccessFor().probeExistingProject(...args)
+  }
+  adoptLegacyProject(...args: Parameters<ProjectAccessService['adoptLegacyProject']>) {
+    return projectAccessFor().adoptLegacyProject(...args)
+  }
+  beginSession(...args: Parameters<ProjectAccessService['beginSession']>) {
+    return projectAccessFor().beginSession(...args)
+  }
+  captureCurrentSession() {
+    return projectAccessFor().captureCurrentSession()
+  }
+  sameCanonicalProjectRoot(...args: Parameters<ProjectAccessService['sameCanonicalProjectRoot']>) {
+    return projectAccessFor().sameCanonicalProjectRoot(...args)
+  }
+  assertCurrentSession(...args: Parameters<ProjectAccessService['assertCurrentSession']>) {
+    return projectAccessFor().assertCurrentSession(...args)
+  }
+  assertCurrentProjectContext(...args: Parameters<ProjectAccessService['assertCurrentProjectContext']>) {
+    return projectAccessFor().assertCurrentProjectContext(...args)
+  }
+  invalidateCurrentSession() {
+    return projectAccessFor().invalidateCurrentSession()
+  }
+  authorizeDeletion(...args: Parameters<ProjectAccessService['authorizeDeletion']>) {
+    return projectAccessFor().authorizeDeletion(...args)
+  }
+}
+
+export const projectAccess = new UserScopedProjectAccess()

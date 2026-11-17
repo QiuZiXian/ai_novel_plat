@@ -54,6 +54,8 @@ export default function ImportNovelDialog({ open, onClose }: ImportNovelDialogPr
   const [targetMode, setTargetMode] = useState<'new' | 'current'>('new')
   const [purpose, setPurpose] = useState<ImportPurpose>('reference')
   const [authorInference, setAuthorInference] = useState(true)
+  // 浏览器里没有本地目录可挑：新项目固定建在服务端作品库。
+  const isWeb = ipc.isWeb
 
   const [previousOpen, setPreviousOpen] = useState(open)
   if (previousOpen !== open) {
@@ -187,13 +189,18 @@ export default function ImportNovelDialog({ open, onClose }: ImportNovelDialogPr
       let project = useProjectStore.getState().currentProject
       let projectSession = captureProjectSession(project)
       if (targetMode === 'new' && !explicitRun) {
-        if (!name.trim() || !savePath) throw new Error(text(
-          '请先填写新项目名称和保存位置，再选择小说文件。',
-          'Enter the new project name and save location before choosing novel files.',
+        if (!name.trim()) throw new Error(text(
+          '请先填写新项目名称，再选择小说文件。',
+          'Enter the new project name before choosing novel files.',
+        ))
+        const targetGrant = savePath ?? (isWeb ? await ipc.invoke('dialog:select-folder', 'project-create') : null)
+        if (!targetGrant) throw new Error(text(
+          '请先选择保存位置，再选择小说文件。',
+          'Choose a save location before choosing novel files.',
         ))
         const success = await createProject({
           name: name.trim(),
-          parentGrantId: savePath.grantId,
+          parentGrantId: targetGrant.grantId,
           genre: '',
           targetAudience: '',
           writingLanguage: locale,
@@ -260,13 +267,25 @@ export default function ImportNovelDialog({ open, onClose }: ImportNovelDialogPr
     } finally {
       setSplitting(false)
     }
-  }, [createProject, locale, name, purpose, savePath, targetMode, text])
+  }, [createProject, isWeb, locale, name, purpose, savePath, targetMode, text])
 
   /** 选择保存路径 */
   const handleSelectFolder = useCallback(async () => {
     const selected = await ipc.invoke('dialog:select-folder', 'project-create')
     if (selected) setSavePath(selected)
   }, [])
+
+  // Web 版没有本地目录可选：打开对话框时直接取作品库授权，用户不必再点“选择”。
+  useEffect(() => {
+    if (!open || !isWeb || targetMode !== 'new' || savePath) return
+    let active = true
+    void ipc.invoke('dialog:select-folder', 'project-create')
+      .then(grant => { if (active && grant) setSavePath(grant) })
+      .catch(() => {
+        // 取不到时点“选择小说文件”还会再试一次，这里不打断填写。
+      })
+    return () => { active = false }
+  }, [isWeb, open, savePath, targetMode])
 
   const launchRun = useCallback(async (run: ImportRunSnapshot) => {
     const project = useProjectStore.getState().currentProject
@@ -897,16 +916,23 @@ export default function ImportNovelDialog({ open, onClose }: ImportNovelDialogPr
                 <Label>{text('保存位置', 'Save location')}</Label>
                 <div className="flex gap-2">
                   <Input
-                    value={savePath?.displayName ?? ''}
+                    value={isWeb ? text('作品库', 'Library') : (savePath?.displayName ?? '')}
                     readOnly
                     placeholder={text('选择项目保存目录', 'Choose a project folder')}
                     className="flex-1"
                   />
-                  <Button variant="outline" onClick={handleSelectFolder}>
-                    <FolderOpen size={14} />
-                    {text('选择', 'Choose')}
-                  </Button>
+                  {!isWeb && (
+                    <Button variant="outline" onClick={handleSelectFolder}>
+                      <FolderOpen size={14} />
+                      {text('选择', 'Choose')}
+                    </Button>
+                  )}
                 </div>
+                {isWeb && (
+                  <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                    {text('新项目会建在服务器作品库，无需选择文件夹。', 'New projects go to the server library; no folder needs to be chosen.')}
+                  </p>
+                )}
               </div>
             </>
           )}

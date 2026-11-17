@@ -25,10 +25,12 @@ import {
   type ImportResourceLimits,
 } from '../../src/shared/import-limits'
 import type {
+  ImportInspectionSummary,
   ImportNovelFileSelectionRequest,
   ImportPurpose,
   ImportRunChapterInput,
   ImportRunLocale,
+  ImportRunPreparationResult,
   ImportSourceFileIdentity,
 } from '../../src/shared/import-run'
 import type { ProjectSessionContext } from '../../src/shared/ipc-channels'
@@ -300,14 +302,56 @@ function hasChapterHeadings(content: string): boolean {
   return lines.some(line => isChapterHeading(line))
 }
 
-export function registerImportController(
+export interface NovelImportInspector {
+  limits: ImportResourceLimits
+  /**
+   * 对一组已选定的本地文件执行预检、解析与 inspection 签发。
+   * 桌面由文件对话框提供路径；Web 由浏览器上传后的服务端暂存路径提供。
+   */
+  inspect(
+    event: NovelImportEvent,
+    filePaths: string[],
+    request?: ImportPurpose | ImportNovelFileSelectionRequest,
+    projectSession?: ProjectSessionContext,
+  ): Promise<{
+    success: boolean
+    inspection?: ImportInspectionSummary
+    preparation?: ImportRunPreparationResult
+    error?: string
+  } | null>
+}
+
+/** 只需 sender.id；Electron 与 Web shim 的事件对象都满足这个结构。 */
+export interface NovelImportEvent {
+  sender: { id: number }
+}
+
+function novelImportFailureResult(
+  error: unknown,
+  responseLocale: ImportRunLocale | undefined,
+  limits: ImportResourceLimits,
+): { success: false; error: string } {
+  const message = error instanceof Error ? error.message : String(error)
+  const duplicateChapter = /^AUTHOR_MANUSCRIPT_DUPLICATE_CHAPTER:(\d+)$/u.exec(message)
+  return {
+    success: false,
+    error: duplicateChapter
+      ? text(
+          `作者原稿包含重复的第 ${duplicateChapter[1]} 章；请修正章节号后重新选择。`,
+          `The author manuscript contains duplicate Chapter ${duplicateChapter[1]}. Correct the chapter numbers and choose the files again.`,
+        )
+      : importSelectionErrorMessage(error, responseLocale, limits),
+  }
+}
+
+export function createNovelImportInspector(
   fileSystem: WindowsSafeFileSystem = windowsSafeFileSystem,
   fileIdentity: ImportFileIdentityProvider = defaultFileIdentity,
   limitOverrides: Partial<ImportResourceLimits> = {},
   grantService: ExternalFileGrantService = externalFileGrants,
   inspectionStore: ImportInspectionStore = importInspectionStore,
   applicationSecret?: Buffer,
-) {
+): NovelImportInspector {
   const limits: ImportResourceLimits = {
     ...DEFAULT_IMPORT_RESOURCE_LIMITS,
     ...limitOverrides,
@@ -319,17 +363,14 @@ export function registerImportController(
       || value > DEFAULT_IMPORT_RESOURCE_LIMITS[key]
     ) throw new Error('IMPORT_RESOURCE_LIMIT_INVALID')
   }
-  // Selection, bounded reading, and inspection are one main-process operation.
-  // The renderer receives only the final inspection token and safe display facts.
-  ipcMain.handle('dialog:select-novel-files', async (
-    event,
-    request?: ImportPurpose | ImportNovelFileSelectionRequest,
-    projectSession?: ProjectSessionContext,
-  ) => {
-    event.sender.once('destroyed', () => {
-      grantService.revokeWebContents(event.sender.id)
-      inspectionStore.revokeForWebContents(event.sender.id)
-    })
+  return {
+    limits,
+    inspect: async (
+      event: NovelImportEvent,
+      filePaths: string[],
+      request?: ImportPurpose | ImportNovelFileSelectionRequest,
+      projectSession?: ProjectSessionContext,
+    ) => {
     const structuredRequest = typeof request === 'object' && request !== null ? request : undefined
     const purpose: ImportPurpose = typeof request === 'string' ? request : (structuredRequest?.purpose ?? 'reference')
     let frozenProject: { rootPath: string; session: ProjectSessionContext } | undefined
@@ -352,27 +393,16 @@ export function registerImportController(
           session: Object.freeze({ ...projectSession }) as ProjectSessionContext,
         }
       }
-      const result = await showOpenDialogInLastDirectory('import-source', {
-        title: purpose === 'author-manuscript'
-          ? text('选择作者原稿文件', 'Choose author manuscript files')
-          : text('选择参考小说文件', 'Choose reference novel files'),
-        filters: [
-          { name: text('小说文件', 'Novel files'), extensions: ['txt', 'md', 'text', 'epub'] },
-          { name: text('所有文件', 'All files'), extensions: ['*'] },
-        ],
-        properties: ['openFile', 'multiSelections'],
-      })
-      assertFrozenProject()
-      if (result.canceled || result.filePaths.length === 0) return null
-      inspectionStore.revokeForWebContents(event.sender.id)
-      if (result.filePaths.length > limits.maxSourceFiles) {
+      if (filePaths.length > limits.maxSourceFiles) {
         throw new Error('IMPORT_SOURCE_COUNT_EXCEEDED')
       }
+      inspectionStore.revokeForWebContents(event.sender.id)
+
 
       // Count, identity, stat, and aggregate-size preflight all complete before
       // the first capability is allocated.
       let selectedBytes = 0
-      const selected = result.filePaths.map(filePath => {
+      const selected = filePaths.map(filePath => {
         const identity = fileIdentity(filePath)
         const selectedSize = statSync(identity.canonicalLocation).size
         if (!Number.isSafeInteger(selectedSize) || selectedSize < 0) {
@@ -666,17 +696,61 @@ export function registerImportController(
       }
     } catch (error) {
       inspectionStore.revokeForWebContents(event.sender.id)
-      const message = error instanceof Error ? error.message : String(error)
-      const duplicateChapter = /^AUTHOR_MANUSCRIPT_DUPLICATE_CHAPTER:(\d+)$/u.exec(message)
-      return {
-        success: false,
-        error: duplicateChapter
-          ? text(
-              `作者原稿包含重复的第 ${duplicateChapter[1]} 章；请修正章节号后重新选择。`,
-              `The author manuscript contains duplicate Chapter ${duplicateChapter[1]}. Correct the chapter numbers and choose the files again.`,
-            )
-          : importSelectionErrorMessage(error, responseLocale, limits),
+      return novelImportFailureResult(error, responseLocale, limits)
+    }
+    },
+  }
+}
+
+export function registerImportController(
+  fileSystem: WindowsSafeFileSystem = windowsSafeFileSystem,
+  fileIdentity: ImportFileIdentityProvider = defaultFileIdentity,
+  limitOverrides: Partial<ImportResourceLimits> = {},
+  grantService: ExternalFileGrantService = externalFileGrants,
+  inspectionStore: ImportInspectionStore = importInspectionStore,
+  applicationSecret?: Buffer,
+) {
+  const inspector = createNovelImportInspector(
+    fileSystem,
+    fileIdentity,
+    limitOverrides,
+    grantService,
+    inspectionStore,
+    applicationSecret,
+  )
+  // Selection, bounded reading, and inspection are one main-process operation.
+  // The renderer receives only the final inspection token and safe display facts.
+  ipcMain.handle('dialog:select-novel-files', async (
+    event,
+    request?: ImportPurpose | ImportNovelFileSelectionRequest,
+    projectSession?: ProjectSessionContext,
+  ) => {
+    event.sender.once('destroyed', () => {
+      grantService.revokeWebContents(event.sender.id)
+      inspectionStore.revokeForWebContents(event.sender.id)
+    })
+    const structuredRequest = typeof request === 'object' && request !== null ? request : undefined
+    const purpose: ImportPurpose = typeof request === 'string' ? request : (structuredRequest?.purpose ?? 'reference')
+    try {
+      if (purpose !== 'reference' && purpose !== 'author-manuscript') throw new Error('IMPORT_PURPOSE_INVALID')
+      if (structuredRequest) {
+        const active = projectAccess.assertCurrentProjectContext(projectSession, getCurrentProjectPath())
+        assertRequiredExpectedProjectPath(active.rootPath, structuredRequest.expectedProjectPath)
       }
+      const result = await showOpenDialogInLastDirectory('import-source', {
+        title: purpose === 'author-manuscript'
+          ? text('选择作者原稿文件', 'Choose author manuscript files')
+          : text('选择参考小说文件', 'Choose reference novel files'),
+        filters: [
+          { name: text('小说文件', 'Novel files'), extensions: ['txt', 'md', 'text', 'epub'] },
+          { name: text('所有文件', 'All files'), extensions: ['*'] },
+        ],
+        properties: ['openFile', 'multiSelections'],
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      return await inspector.inspect(event, result.filePaths, request, projectSession)
+    } catch (error) {
+      return novelImportFailureResult(error, undefined, inspector.limits)
     }
   })
 }

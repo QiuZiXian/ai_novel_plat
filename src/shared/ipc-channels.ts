@@ -514,6 +514,11 @@ export interface FileChannels {
     args: []
     return: ExternalDirectoryGrant | null
   }
+  /** Web only: turn an export grant into a browser download token. */
+  'web:request-download': {
+    args: [grantId: string]
+    return: { success: true; token: string; name: string } | { success: false; error: string }
+  }
 }
 
 // ===== LLM 调用 =====

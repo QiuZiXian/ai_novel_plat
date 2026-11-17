@@ -117,6 +117,7 @@ vi.mock('../../utils/remove-directory', () => ({
 
 vi.mock('../../utils/config-utils', () => ({
   RECENT_PROJECTS_PATH: 'recent-projects.json',
+  currentRecentProjectsPath: () => 'recent-projects.json',
   readJsonFile: vi.fn(() => mocks.recentProjects),
   writeJsonFile: mocks.writeJsonFile,
 }))

@@ -26,6 +26,8 @@ interface StageTopBarProps {
 
 function WindowControls() {
   const text = useLocaleStore(s => s.text)
+  // 浏览器没有窗口边框，这些按钮只会在 Web 下造成误导。
+  if (!ipc.isDesktop) return null
   return (
     <div className="stage-window-controls">
       <button type="button" aria-label={text('最小化', 'Minimize')} onClick={() => void ipc.invoke('window:minimize')}>

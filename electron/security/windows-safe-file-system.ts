@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import * as electron from 'electron'
@@ -150,6 +150,36 @@ function validateRootIdentity(identity: unknown): SecureRootIdentity {
   return Object.freeze({ volumeSerialNumber, fileIndex })
 }
 
+const volumeSerialCache = new Map<string, string>()
+
+/**
+ * Some Node builds report `st_dev` as 0 on Windows, while the platform helper
+ * verifies the real volume serial number. Fall back to a one-off `vol` probe per
+ * drive so authority captured in Node still matches the handle opened by the
+ * helper.
+ */
+function resolveVolumeSerialNumber(rootPath: string, device: bigint): string {
+  if (device > 0n) return device.toString()
+  // `vol` rejects a trailing separator ("E:\"), so probe the bare drive.
+  const drive = path.parse(rootPath).root.replace(/[\\/]+$/, '').toUpperCase()
+  if (!drive) return device.toString()
+  const cached = volumeSerialCache.get(drive)
+  if (cached) return cached
+  let serial = device.toString()
+  try {
+    const output = execFileSync('cmd.exe', ['/d', '/c', 'vol', drive], {
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+    const match = /([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})/.exec(output)
+    if (match) serial = String(Number.parseInt(match[1].replace('-', ''), 16))
+  } catch {
+    // Keep the raw device number; the helper will reject the capability.
+  }
+  volumeSerialCache.set(drive, serial)
+  return serial
+}
+
 /**
  * Snapshot the resolved root directory's Windows identity at the authorization
  * boundary. A later junction substitution can resolve the same rootPath to a
@@ -164,7 +194,7 @@ export function captureSecureRootIdentity(rootPath: string): SecureRootIdentity 
       throw secureError('SECURE_FS_INVALID_PATH')
     }
     return Object.freeze({
-      volumeSerialNumber: information.dev.toString(),
+      volumeSerialNumber: resolveVolumeSerialNumber(canonicalRoot, information.dev),
       fileIndex: information.ino.toString(),
     })
   } catch (error) {

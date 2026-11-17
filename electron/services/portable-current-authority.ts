@@ -29,8 +29,9 @@ function normalized(value: string): string {
   return process.platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved
 }
 
+/** Windows 上部分文件系统的 lstat.dev 恒为 0n（fstat.dev 才是真实卷号），缺失时只比 ino。 */
 function sameFile(left: fs.BigIntStats, right: fs.BigIntStats): boolean {
-  return left.dev === right.dev && left.ino === right.ino
+  return (left.dev === right.dev || left.dev === 0n || right.dev === 0n) && left.ino === right.ino
 }
 
 function readRegular(file: string, afterOpen?: (file: string) => void): Buffer {

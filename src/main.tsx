@@ -1,3 +1,4 @@
+import { installWebBridge } from './services/web-bridge'
 import { installMainGenerationTransport } from './services/generation/generation-runtime'
 import { mainGenerationTransport } from './services/generation/main-generation-transport'
 import React from 'react'
@@ -10,6 +11,7 @@ import './index.css'
 import './components/stage/stage.css'
 
 
+installWebBridge()
 installMainGenerationTransport(mainGenerationTransport)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

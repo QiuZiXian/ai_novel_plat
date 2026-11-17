@@ -13,6 +13,13 @@
   "scripts": {
     "postinstall": "node node_modules/electron/install.js",
     "dev": "vite",
+    "dev:web": "node scripts/dev-web.mjs",
+    "dev:web:server": "node scripts/build-web-server.mjs && node dist-server/server.mjs",
+    "dev:web:client": "vite --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts",
+    "build:web:server": "node scripts/build-web-server.mjs",
+    "build:web:all": "vite build --config vite.web.config.ts && node scripts/build-web-server.mjs",
+    "start:web": "node dist-server/server.mjs",
     "clean:build": "node scripts/clean-build-output.mjs",
     "typecheck": "tsc --noEmit",
     "check:i18n": "node scripts/check-i18n-coverage.mjs",

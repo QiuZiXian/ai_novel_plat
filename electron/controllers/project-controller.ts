@@ -2,7 +2,7 @@ import { app, ipcMain, dialog } from 'electron'
 import { showOpenDialogInLastDirectory } from '../utils/remembered-dialog'
 import fs from 'node:fs'
 import path from 'node:path'
-import { readJsonFile, writeJsonFile, RECENT_PROJECTS_PATH } from '../utils/config-utils'
+import { readJsonFile, writeJsonFile, currentRecentProjectsPath } from '../utils/config-utils'
 import { removeDirectoryWithWindowsRetry } from '../utils/remove-directory'
 import {
   ProjectData,
@@ -329,7 +329,7 @@ function restoreProjectRollbackBoundary(
 }
 
 function loadRecentProjects(): RecentProject[] {
-  return readJsonFile<RecentProject[]>(RECENT_PROJECTS_PATH, [])
+  return readJsonFile<RecentProject[]>(currentRecentProjectsPath(), [])
 }
 
 /** 最近项目导航元数据的唯一写入口。 */
@@ -338,12 +338,12 @@ export function registerRecentProject(project: RecentProject): void {
   const filtered = list.filter((p) => !sameRecentProjectPath(p.path, project.path))
   filtered.unshift(project)
   const trimmed = filtered.slice(0, 20)
-  writeJsonFile(RECENT_PROJECTS_PATH, trimmed)
+  writeJsonFile(currentRecentProjectsPath(), trimmed)
 }
 
 function removeRecentProject(projectPath: string) {
   const filtered = loadRecentProjects().filter((p) => !sameRecentProjectPath(p.path, projectPath))
-  writeJsonFile(RECENT_PROJECTS_PATH, filtered)
+  writeJsonFile(currentRecentProjectsPath(), filtered)
 }
 
 export interface ProjectControllerOptions {

@@ -24,26 +24,46 @@ export function useWindowCloseGuard() {
   const [exitBusy, setExitBusy] = useState(false)
   const [exitError, setExitError] = useState<string | null>(null)
 
-  useEffect(() => ipc.on('window:close-requested', ({ requestId }) => {
-    const projectPath = useProjectStore.getState().currentProject?.path
-    const hasActiveWorkflow = !!projectPath && useWorkflowStore.getState().activeRuns.some(
-      run => sameProjectPathKey(run.projectPath, projectPath),
-    )
-    if (hasActiveWorkflow) {
+  useEffect(() => {
+    if (!ipc.isDesktop) return
+    return ipc.on('window:close-requested', ({ requestId }) => {
+      const projectPath = useProjectStore.getState().currentProject?.path
+      const hasActiveWorkflow = !!projectPath && useWorkflowStore.getState().activeRuns.some(
+        run => sameProjectPathKey(run.projectPath, projectPath),
+      )
+      if (hasActiveWorkflow) {
+        setExitError(null)
+        setExitRequest({ requestId, workflowBlocked: true })
+        return
+      }
+      const editor = useEditorStore.getState()
+      if (countUnsavedEditorItems(editor.tabs, editor.draftLedgers) === 0) {
+        void ipc.invoke('window:resolve-close', requestId, 'proceed').then(result => {
+          if (!result.success) console.error('[WindowCloseGuard] 退出请求已失效')
+        }).catch(error => console.error('[WindowCloseGuard] 退出请求失败:', error))
+        return
+      }
       setExitError(null)
-      setExitRequest({ requestId, workflowBlocked: true })
-      return
+      setExitRequest({ requestId })
+    })
+  }, [])
+
+  // 浏览器没有主进程关窗协商，用原生离开提示替代。
+  useEffect(() => {
+    if (!ipc.isWeb) return
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      const projectPath = useProjectStore.getState().currentProject?.path
+      const hasActiveWorkflow = !!projectPath && useWorkflowStore.getState().activeRuns.some(
+        run => sameProjectPathKey(run.projectPath, projectPath),
+      )
+      const editor = useEditorStore.getState()
+      if (!hasActiveWorkflow && countUnsavedEditorItems(editor.tabs, editor.draftLedgers) === 0) return
+      event.preventDefault()
+      event.returnValue = ''
     }
-    const editor = useEditorStore.getState()
-    if (countUnsavedEditorItems(editor.tabs, editor.draftLedgers) === 0) {
-      void ipc.invoke('window:resolve-close', requestId, 'proceed').then(result => {
-        if (!result.success) console.error('[WindowCloseGuard] 退出请求已失效')
-      }).catch(error => console.error('[WindowCloseGuard] 退出请求失败:', error))
-      return
-    }
-    setExitError(null)
-    setExitRequest({ requestId })
-  }), [])
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   const cancelExit = async () => {
     const request = exitRequest

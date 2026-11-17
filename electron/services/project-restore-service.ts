@@ -129,8 +129,9 @@ function contained(root: string, candidate: string): boolean {
   return relative === '' || relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }
 
+/** Windows 上部分文件系统的 lstat.dev 恒为 0n（fstat.dev 才是真实卷号），缺失时只比 ino。 */
 function same(left: fs.BigIntStats, right: fs.BigIntStats): boolean {
-  return left.dev === right.dev && left.ino === right.ino
+  return (left.dev === right.dev || left.dev === 0n || right.dev === 0n) && left.ino === right.ino
 }
 
 function exactOwned(owned: OwnedPath): fs.BigIntStats {
@@ -657,22 +658,16 @@ async function installStagedProject(
     if (fs.existsSync(target)) {
       if (await hashPhysicalFile(target) !== await hashPhysicalFile(source.path)) fail('PORTABLE_RESTORE_UNSAFE_TARGET')
     } else {
-      const temporary = temporaryPath(source)
-      try { fs.copyFileSync(source.path, temporary, fs.constants.COPYFILE_EXCL) } catch (error) {
+      /** 独占创建目标文件：不产生第二个硬链接，便于后续 nlink === 1 的身份校验。 */
+      try { fs.copyFileSync(source.path, target, fs.constants.COPYFILE_EXCL) } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EEXIST') fail('PORTABLE_RESTORE_UNSAFE_TARGET')
         throw error
       }
-      const descriptor = fs.openSync(temporary, 'r+')
+      const descriptor = fs.openSync(target, 'r+')
       try { fs.fsyncSync(descriptor) } finally { fs.closeSync(descriptor) }
-      if (await hashPhysicalFile(temporary) !== await hashPhysicalFile(source.path)) fail('PORTABLE_RESTORE_UNSAFE_TARGET')
-      try { fs.linkSync(temporary, target) } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') fail('PORTABLE_RESTORE_UNSAFE_TARGET')
-        throw error
-      }
-      const temporaryInfo = fs.lstatSync(temporary, { bigint: true })
-      const linked = fs.lstatSync(target, { bigint: true })
-      if (!linked.isFile() || linked.isSymbolicLink() || !same(temporaryInfo, linked)) fail('PORTABLE_RESTORE_UNSAFE_TARGET')
-      fs.unlinkSync(temporary)
+      if (await hashPhysicalFile(target) !== await hashPhysicalFile(source.path)) fail('PORTABLE_RESTORE_UNSAFE_TARGET')
+      const created = fs.lstatSync(target, { bigint: true })
+      if (!created.isFile() || created.isSymbolicLink() || created.nlink !== 1n) fail('PORTABLE_RESTORE_UNSAFE_TARGET')
     }
     removeOwnedFile(attempt, source.path)
   }

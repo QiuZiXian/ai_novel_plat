@@ -120,7 +120,7 @@ export default function App() {
   }, [initLocale, initTheme, initLLM, loadRecentProjects])
 
   useEffect(() => {
-    if (!ipc.isElectron) return
+    if (!ipc.isDesktop) return
     void ipc.invoke('project:smoke-open-request').then(async (request) => {
       if (!request) return
       const opened = await useProjectStore.getState().openProject(request.projectPath)
@@ -177,7 +177,7 @@ export default function App() {
       <StageRoot theme={resolvedTheme} exitGuard={exitGuard}>
         <StageShell theme={resolvedTheme} />
       </StageRoot>
-      <UpdateNotifier />
+      {ipc.isDesktop && <UpdateNotifier />}
       {globalDialogs}
     </>
   )

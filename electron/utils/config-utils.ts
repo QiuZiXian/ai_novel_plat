@@ -4,7 +4,13 @@ import { randomUUID } from 'node:crypto'
 import { GlobalConfig } from '../../src/shared/ipc-channels'
 import { GLOBAL_CONFIG_PATH, VELA_HOME, assertGlobalDataReady, assertGlobalPathAccess } from '../services/app-data-locator'
 import { retryWhileWindowsFileBusy } from './windows-file-busy-retry'
-export { VELA_HOME, GLOBAL_CONFIG_PATH, MODELS_CONFIG_PATH, RECENT_PROJECTS_PATH } from '../services/app-data-locator'
+export {
+  VELA_HOME,
+  GLOBAL_CONFIG_PATH,
+  MODELS_CONFIG_PATH,
+  RECENT_PROJECTS_PATH,
+  currentRecentProjectsPath,
+} from '../services/app-data-locator'
 
 /** Compatibility function name; only the admitted canonical generation may be created. */
 
@@ -28,6 +34,21 @@ export type JsonFileReadResult<T> =
   | { status: 'error'; error: unknown }
 
 /**
+ * 可选的落盘编解码器。桌面不安装（保持明文兼容）；Web 运行时安装它，
+ * 在 models.json 这类含密钥的文件进出磁盘时做加解密。
+ */
+export interface JsonFileCodec {
+  encode(filePath: string, value: unknown): unknown
+  decode(filePath: string, value: unknown): unknown
+}
+
+let jsonFileCodec: JsonFileCodec | null = null
+
+export function installJsonFileCodec(codec: JsonFileCodec | null): void {
+  jsonFileCodec = codec
+}
+
+/**
  * 区分“文件不存在”与“文件存在但不可读取/不可解析”。
  * 对全局配置做增量写入的调用方必须在 error 时拒绝覆盖原文件。
  */
@@ -35,7 +56,8 @@ export function tryReadJsonFile<T>(filePath: string): JsonFileReadResult<T> {
   assertGlobalPathAccess(filePath)
   if (!fs.existsSync(filePath)) return { status: 'missing' }
   try {
-    return { status: 'ok', value: JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T }
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown
+    return { status: 'ok', value: (jsonFileCodec ? jsonFileCodec.decode(filePath, parsed) : parsed) as T }
   } catch (error) {
     return { status: 'error', error }
   }
@@ -64,7 +86,8 @@ export function writeJsonFile(filePath: string, data: unknown) {
   try {
     // 同目录临时文件保证 rename 不会跨卷；wx 避免意外覆盖其他进程的临时文件。
     temporaryFile = fs.openSync(temporaryPath, 'wx', 0o600)
-    fs.writeFileSync(temporaryFile, JSON.stringify(data, null, 2), 'utf-8')
+    const encoded = jsonFileCodec ? jsonFileCodec.encode(filePath, data) : data
+    fs.writeFileSync(temporaryFile, JSON.stringify(encoded, null, 2), 'utf-8')
     fs.fsyncSync(temporaryFile)
     fs.closeSync(temporaryFile)
     temporaryFile = undefined

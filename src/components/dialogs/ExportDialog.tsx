@@ -7,6 +7,7 @@ import {
   type ExportProjectSnapshot,
 } from '../../services/export-service'
 import { ipc } from '../../services/ipc-client'
+import { downloadWebGrant } from '../../services/web-download'
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from '../ui/Dialog'
@@ -84,6 +85,10 @@ export default function ExportDialog({ isOpen, onClose }: Props) {
       return
     }
     if (!isProjectSessionCurrent(projectSession)) return
+    if (res.success) {
+      // Web 端产物在服务端，导出成功后立刻交给浏览器下载。
+      try { await downloadWebGrant(destination.grantId) } catch { /* 下载失败不回滚导出结果 */ }
+    }
     setTaskState({
       session: projectSession,
       exporting: false,

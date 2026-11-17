@@ -1,6 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { STORAGE_ENVIRONMENT } from '../../src/shared/project-storage'
+import { currentUserId, LOCAL_USER_ID } from './user-scope'
 
 export interface GlobalDataRoots { legacySource: string; canonicalTarget: string; userData: string }
 /**
@@ -42,6 +43,22 @@ export function assertGlobalDataReady(): void {
   if (!activeGeneration) throw new Error('GLOBAL_DATA_NOT_READY')
 }
 export function getGlobalDataRoot(): string { assertGlobalDataReady(); return VELA_HOME }
+
+function safeUserSegment(userId: string): string {
+  const cleaned = userId.trim().replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 96)
+  return cleaned && cleaned !== '.' && cleaned !== '..' ? cleaned : 'user'
+}
+
+/**
+ * 最近项目按用户分开：桌面/本地用户仍是全局根下的一个文件，
+ * Web 登录用户放在 `users/<id>/`，避免互相看到对方的书架。
+ */
+export function currentRecentProjectsPath(): string {
+  assertGlobalDataReady()
+  const userId = currentUserId()
+  if (userId === LOCAL_USER_ID) return RECENT_PROJECTS_PATH
+  return path.join(VELA_HOME, 'users', safeUserSegment(userId), 'recent-projects.json')
+}
 /** Called exclusively by the successful startup migration coordinator. */
 export function installGlobalDataLocator(dataRoot: string, generation: string, legacySource: string): void {
   if (activeGeneration && (activeGeneration !== generation || VELA_HOME !== dataRoot)) throw new Error('GLOBAL_DATA_ALREADY_ACTIVE')
